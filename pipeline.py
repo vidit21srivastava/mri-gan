@@ -1,88 +1,70 @@
-import numpy as np
-import tensorflow as tf
-import matplotlib.pyplot as plt
-from skimage.transform import resize
-from tensorflow.keras.utils import plot_model
 import pathlib
-import imageio
-import glob
-import PIL
-from data_processing import ImagePreprocessor
-
-import os
-root_path = '/path_to_dataset'  # Change this path to that of dataset
-os.chdir(root_path)
-
-data_dir_t1 = pathlib.Path("./Tr1/")
-data_dir_t2 = pathlib.Path("./Tr2/")
-print("T1 MRI images: ", len(list(data_dir_t1.glob('*/*.png'))))
-print("T2 MRI images: ", len(list(data_dir_t2.glob('*/*.png'))))
-
-# Initializing constants
-BUFFER_SIZE = 1000
-BATCH_SIZE = 16
-EPOCHS = 125
-img_height = 256
-img_width = 256
-
-# T1 MRI images Train set
-tr1_train = tf.keras.preprocessing.image_dataset_from_directory(
-    data_dir_t1,
-    seed=123,
-    validation_split=0.075,
-    subset='training',
-    labels=None,
-    image_size=(img_height, img_width),
-    batch_size=BATCH_SIZE)
-
-# TR1 Test set
-tr1_test = tf.keras.preprocessing.image_dataset_from_directory(
-    data_dir_t1,
-    seed=123,
-    validation_split=0.075,
-    subset='validation',
-    image_size=(img_height, img_width),
-    batch_size=1)
-
-# TR2 Train set
-tr2_train = tf.keras.preprocessing.image_dataset_from_directory(
-    data_dir_t2,
-    seed=123,
-    validation_split=0.07,
-    subset='training',
-    labels=None,
-    image_size=(img_height, img_width),
-    batch_size=BATCH_SIZE)
-
-# TR2 Test set
-tr2_test = tf.keras.preprocessing.image_dataset_from_directory(
-    data_dir_t2,
-    seed=123,
-    validation_split=0.07,
-    subset='validation',
-    image_size=(img_height, img_width),
-    batch_size=1)
-
-AUTOTUNE = tf.data.experimental.AUTOTUNE
-tr1_train = tr1_train.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
-tr1_test = tr1_test.cache().prefetch(buffer_size=AUTOTUNE)
-
-tr2_train = tr2_train.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
-tr2_test = tr2_test.cache().prefetch(buffer_size=AUTOTUNE)
-
-preprocessor = ImagePreprocessor('./path_to_image.png')
-preprocessed_image = preprocessor.preprocess_image_train(grayscale=True)
+import tensorflow as tf
+from data_processing import load_datasets
+from mri_gan import unet_generator, discriminator
+from loss import *
+from training import train_step
+from plotting import generate_images
 
 
-tr1_train = tr1_train.map(lambda x: (preprocessor.preprocess_image_train(x)))
-tr2_train = tr2_train.map(lambda x: (preprocessor.preprocess_image_train(x)))
-tr1_test = tr1_test.map(lambda x, _: (preprocessor.preprocess_image_train(x)))
-tr2_test = tr2_test.map(lambda x, _: (preprocessor.preprocess_image_train(x)))
+class MRIGANPipeline:
+    def __init__(self, data_dir_t1, data_dir_t2, img_height, img_width, batch_size, buffer_size, epochs):
+        self.data_dir_t1 = pathlib.Path(data_dir_t1)
+        self.data_dir_t2 = pathlib.Path(data_dir_t2)
+        self.img_height = img_height
+        self.img_width = img_width
+        self.batch_size = batch_size
+        self.buffer_size = buffer_size
+        self.epochs = epochs
 
-image_batch_tr1 = next(iter(tr1_train))
-image_batch_tr2 = next(iter(tr2_train))
-tr1_1 = image_batch_tr1[0]
-tr2_1 = image_batch_tr2[0]
+        # Initialize models, optimizers, and datasets
+        self.generator_g = unet_generator()
+        self.generator_f = unet_generator()
+        self.discriminator_x = discriminator()
+        self.discriminator_y = discriminator()
 
-sample_tr1 = next(iter(tr1_train))
-sample_tr2 = next(iter(tr2_train))
+        self.generator_g_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
+        self.generator_f_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
+        self.discriminator_x_optimizer = tf.keras.optimizers.Adam(
+            2e-4, beta_1=0.5)
+        self.discriminator_y_optimizer = tf.keras.optimizers.Adam(
+            2e-4, beta_1=0.5)
+
+        self.tr1_train, self.tr2_train, self.tr1_test, self.tr2_test = load_datasets(
+            self.data_dir_t1, self.data_dir_t2, self.img_height, self.img_width, self.batch_size, self.buffer_size)
+
+        self.loss_obj = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+
+    def train_epoch(self):
+        # Loop through the dataset and perform training step
+        for image_x, image_y in tf.data.Dataset.zip((self.tr1_train, self.tr2_train)):
+            gen_g_loss, gen_f_loss, disc_x_loss, disc_y_loss = train_step(
+                self.generator_g, self.generator_f,
+                self.discriminator_x, self.discriminator_y,
+                self.generator_g_optimizer, self.generator_f_optimizer,
+                self.discriminator_x_optimizer, self.discriminator_y_optimizer,
+                image_x, image_y, self.loss_obj
+            )
+        return gen_g_loss, gen_f_loss, disc_x_loss, disc_y_loss
+
+    def generate_and_visualize(self, epoch):
+        # Generate and visualize images after each epoch
+        sample_tr1 = next(iter(self.tr1_train))
+        sample_tr2 = next(iter(self.tr2_train))
+        generate_images(self.generator_g, sample_tr1,
+                        self.generator_f, sample_tr2, epoch)
+
+    def train(self):
+        # Train for the specified number of epochs
+        for epoch in range(self.epochs):
+            print(f"Epoch {epoch + 1}/{self.epochs}")
+            gen_g_loss, gen_f_loss, disc_x_loss, disc_y_loss = self.train_epoch()
+
+            # Print the loss for the epoch
+            print(
+                f"Gen G Loss: {gen_g_loss}, Gen F Loss: {gen_f_loss}, Disc X Loss: {disc_x_loss}, Disc Y Loss: {disc_y_loss}")
+
+            # Generate and visualize the results
+            self.generate_and_visualize(epoch)
+
+        print("Training completed!")

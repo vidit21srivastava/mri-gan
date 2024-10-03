@@ -1,36 +1,41 @@
-from data_processing import load_datasets
-from mri_gan import unet_generator, discriminator
-from loss import *
-from training import train_step
-from plotting import generate_images
-import tensorflow as tf
+import argparse
+from pipeline import MRIGANPipeline
 
-data_dir_t1 = pathlib.Path("./Tr1/")
-data_dir_t2 = pathlib.Path("./Tr2/")
-img_height, img_width = 256, 256
-batch_size, buffer_size = 16, 1000
-epochs = 125
 
-tr1_train, tr2_train, tr1_test, tr2_test = load_datasets(
-    data_dir_t1, data_dir_t2, img_height, img_width, batch_size, buffer_size)
+def parse_args():
 
-generator_g = unet_generator()
-generator_f = unet_generator()
-discriminator_x = discriminator()
-discriminator_y = discriminator()
+    parser = argparse.ArgumentParser(description="MRI GAN Training Pipeline")
 
-generator_g_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
-generator_f_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
-discriminator_x_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
-discriminator_y_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
+    parser.add_argument('--data_dir_t1', type=str, default="./Tr1/",
+                        help="Path to the T1 MRI dataset directory")
+    parser.add_argument('--data_dir_t2', type=str, default="./Tr2/",
+                        help="Path to the T2 MRI dataset directory")
+    parser.add_argument('--img_height', type=int, default=256,
+                        help="Height of the input images")
+    parser.add_argument('--img_width', type=int, default=256,
+                        help="Width of the input images")
+    parser.add_argument('--batch_size', type=int, default=16,
+                        help="Batch size for training")
+    parser.add_argument('--buffer_size', type=int, default=1000,
+                        help="Buffer size for shuffling the dataset")
+    parser.add_argument('--epochs', type=int, default=125,
+                        help="Number of epochs to train the model")
 
-for epoch in range(epochs):
-    for image_x, image_y in tf.data.Dataset.zip((tr1_train, tr2_train)):
-        gen_g_loss, gen_f_loss, disc_x_loss, disc_y_loss = train_step(
-            generator_g, generator_f, discriminator_x, discriminator_y,
-            generator_g_optimizer, generator_f_optimizer, discriminator_x_optimizer, discriminator_y_optimizer,
-            image_x, image_y, loss_obj
-        )
+    return parser.parse_args()
 
-    generate_images(generator_g, next(iter(tr1_train)),
-                    generator_f, next(iter(tr2_train)), epoch)
+
+if __name__ == "__main__":
+
+    args = parse_args()
+
+    pipeline = MRIGANPipeline(
+        data_dir_t1=args.data_dir_t1,
+        data_dir_t2=args.data_dir_t2,
+        img_height=args.img_height,
+        img_width=args.img_width,
+        batch_size=args.batch_size,
+        buffer_size=args.buffer_size,
+        epochs=args.epochs
+    )
+
+    pipeline.train()
