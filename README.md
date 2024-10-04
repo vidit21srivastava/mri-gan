@@ -3,7 +3,7 @@
 ## Overview
 <!-- ![Result](./Assets/cyclegan_training.gif) -->
 
-<img src="./Assets/cyclegan_training.gif" alt="Output" style="display: block; margin-left: auto; margin-right: auto; width: 400px;">
+<div align="center"><img style="margin:0px"src="./Assets/cyclegan_training.gif" alt="Result" width="400" height="400"></div>
 
 
 Implementing  [**CycleGAN**](https://github.com/junyanz/CycleGAN) [[Paper](https://arxiv.org/abs/1703.10593)]  to translate T1 to T2 MRI images and vice versa can be crucial in medical imaging. It enables cross-modal image synthesis without paired datasets, saving time and resources in MRI acquisition. Clinicians can generate missing sequences, improving diagnostic capabilities by providing complementary information from both T1 and T2 modalities. This can enhance image analysis, reduce patient scan times, and lower costs. Additionally, it allows for more flexible retrospective studies where only one MRI modality is available, making it easier to explore conditions requiring multimodal data for better diagnostic accuracy.
